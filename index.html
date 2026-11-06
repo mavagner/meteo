@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meteo Bílovice</title>
+<meta name="theme-color" content="#0f1a1f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef2f1" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: přístrojová deska — souhrn stanice nahoře, mřížka měřených veličin, detail jako spodní panel. */
+:root {
+  --bg: #eef2f1;
+  --surface: #ffffff;
+  --surface-2: #e2e9e7;
+  --fg: #12201f;
+  --muted: #5b6e6b;
+  --line: #cfd9d6;
+  --accent: #c2410c;      /* oranžová ručička přístroje */
+  --accent-soft: #fbe3d6;
+  --trace: #0e7490;       /* barva křivky */
+  --trace-fill: rgba(14,116,144,.12);
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1a1f; --surface: #16242a; --surface-2: #1d2f36; --fg: #e4ecea; --muted: #8fa3a2;
+    --line: #26393f; --accent: #fb923c; --accent-soft: #3a2418; --trace: #5ec4d6;
+    --trace-fill: rgba(94,196,214,.14); --ok: #4ade80; --warn: #fbbf24; --bad: #f87171;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+}
+.wrap {
+  max-width: 980px;
+  margin: 0 auto;
+  padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 28px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 18px;
+}
+header.top {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.station { min-width: 0; }
+.eyebrow {
+  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+h1 {
+  margin: 6px 0 4px;
+  font: 700 clamp(26px, 6vw, 36px)/1.05 var(--font-display);
+  letter-spacing: .01em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px; font: 500 12px/1.4 var(--font-mono);
+  background: var(--surface-2); color: var(--fg);
+}
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.pill.ok::before { background: var(--ok); }
+.pill.warn::before { background: var(--warn); }
+.pill.bad::before { background: var(--bad); }
+.actions { display: flex; gap: 6px; flex-shrink: 0; }
+button.icon {
+  width: 42px; height: 42px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg); display: grid; place-items: center; cursor: pointer;
+}
+button.icon svg { width: 20px; height: 20px; }
+button.icon.spin svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+button:focus-visible, .card:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+}
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 14px 10px; display: grid; gap: 6px; cursor: pointer; text-align: left;
+  color: inherit; font: inherit; min-width: 0;
+}
+.card:hover { border-color: var(--muted); }
+.card .name { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 13px; }
+.card .name span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .fld { font: 500 11px/1.6 var(--font-mono); color: var(--muted); opacity: .8; }
+.value {
+  font: 600 clamp(34px, 9vw, 44px)/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  display: flex; align-items: baseline; gap: 6px;
+}
+.value .unit { font: 500 16px/1 var(--font-body); color: var(--muted); }
+.value .trend { font: 600 16px/1 var(--font-body); color: var(--accent); margin-left: auto; }
+.card canvas { width: 100%; height: 46px; display: block; }
+.minmax { display: flex; justify-content: space-between; font: 400 12px/1.4 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.note {
+  background: var(--surface); border: 1px dashed var(--line); border-radius: 14px; padding: 18px;
+  color: var(--muted);
+}
+.note strong { color: var(--fg); }
+.note.err { border-style: solid; border-color: var(--bad); }
+
+footer { color: var(--muted); font: 400 12px/1.5 var(--font-mono); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+footer a { color: inherit; }
+
+/* Spodní panel s detailem */
+.sheet-backdrop {
+  position: fixed; inset: 0; background: rgba(5,12,14,.45); z-index: 20;
+}
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 21;
+  max-height: 92%; overflow: auto;
+  background: var(--surface); border-radius: 18px 18px 0 0; border-top: 1px solid var(--line);
+  padding-block: 10px calc(env(safe-area-inset-bottom, 0px) + 20px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.sheet-inner { max-width: 900px; margin: 0 auto; display: grid; gap: 14px; }
+.grabber { width: 40px; height: 4px; border-radius: 4px; background: var(--line); margin: 0 auto 4px; }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.sheet-head h2 { margin: 4px 0 0; font: 700 26px/1.1 var(--font-display); overflow-wrap: anywhere; }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button {
+  border: 0; background: transparent; color: var(--muted); font: 500 13px/1 var(--font-mono);
+  padding: 9px 12px; border-radius: 8px; cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.chart-box { position: relative; }
+.chart-box canvas { width: 100%; height: min(52vh, 340px); display: block; touch-action: pan-y; }
+.readout {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; font: 400 13px/1.4 var(--font-mono); color: var(--muted);
+  font-variant-numeric: tabular-nums; min-height: 1.4em;
+}
+.readout b { color: var(--fg); font-weight: 500; }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+@media (min-width: 560px) { .stats { grid-template-columns: repeat(4, 1fr); } }
+.stat { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; }
+.stat .k { font: 500 11px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stat .v { font: 600 24px/1.2 var(--font-display); font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+/* Nastavení */
+form.settings { display: grid; gap: 14px; }
+form.settings label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+form.settings input, form.settings select {
+  font: 500 16px/1.2 var(--font-mono); padding: 11px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%;
+}
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  border: 0; border-radius: 10px; padding: 12px 18px; font: 600 15px/1 var(--font-body); cursor: pointer;
+  background: var(--accent); color: #fff;
+}
+.btn.ghost { background: var(--surface-2); color: var(--fg); }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+
+@media (prefers-reduced-motion: reduce) { button.icon.spin svg { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="station">
+      <div class="eyebrow" id="eyebrow">ThingSpeak · kanál —</div>
+      <h1 id="title">Načítám stanici…</h1>
+      <div class="status">
+        <span class="pill" id="pill">čekám na data</span>
+        <span id="updated"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="icon" id="refreshBtn" aria-label="Obnovit data" title="Obnovit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+      </button>
+      <button class="icon" id="settingsBtn" aria-label="Nastavení" title="Nastavení">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="note">Stahuji poslední data z ThingSpeaku…</div>
+  </main>
+
+  <footer>
+    <span id="foot-channel"></span>
+    <span>Obnovení: <span id="foot-interval"></span></span>
+    <span id="foot-src"></span>
+  </footer>
+</div>
+
+<div class="sheet-backdrop" id="backdrop" hidden></div>
+<section class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet-inner" id="sheetInner"></div>
+</section>
+
+<script>
+'use strict';
+/* ---------- Nastavení ---------- */
+const DEFAULTS = { channel: '349749', key: '', refresh: 60 };
+function loadCfg() {
+  try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem('ts-cfg') || '{}')); }
+  catch (e) { return Object.assign({}, DEFAULTS); }
+}
+function saveCfg(c) { try { localStorage.setItem('ts-cfg', JSON.stringify(c)); } catch (e) {} }
+let cfg = loadCfg();
+
+/* ---------- Pomocné funkce ---------- */
+const $ = id => document.getElementById(id);
+const nf = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 });
+const fmt = v => v == null || isNaN(v) ? '—' : (Math.abs(v) < 10 ? nf2 : nf).format(v);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function ago(d) {
+  const s = Math.round((Date.now() - d) / 1000);
+  if (s < 60) return 'právě teď';
+  const m = Math.round(s / 60);
+  if (m < 60) return `před ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `před ${h} h`;
+  return `před ${Math.round(h / 24)} dny`;
+}
+const tFmt = new Intl.DateTimeFormat('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+const dFmt = new Intl.DateTimeFormat('cs-CZ', { day: 'numeric', month: 'numeric' });
+const dtFmt = new Intl.DateTimeFormat('cs-CZ', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/* Jednotka z názvu pole: "Teplota [°C]" nebo "Teplota (°C)" má přednost, jinak odhad podle slova. */
+function splitUnit(name) {
+  const m = name.match(/^(.*?)[\s]*[\[(]([^\])]{1,10})[\])]\s*$/);
+  if (m) return { label: m[1].trim(), unit: m[2].trim() };
+  const n = name.toLowerCase();
+  let unit = '';
+  if (/teplot|temp/.test(n)) unit = '°C';
+  else if (/půd|soil/.test(n) && /vlh|moist|hum/.test(n)) unit = '%';
+  else if (/vlhk|humid|rh\b/.test(n)) unit = '%';
+  else if (/tlak|press/.test(n)) unit = 'hPa';
+  else if (/vítr|vitr|wind|rychl/.test(n)) unit = 'm/s';
+  else if (/srá|sra|rain|precip/.test(n)) unit = 'mm';
+  else if (/napět|napet|volt|bat/.test(n)) unit = 'V';
+  else if (/rssi|signal|wifi/.test(n)) unit = 'dBm';
+  return { label: name, unit };
+}
+
+/* ---------- ThingSpeak API ---------- */
+const RANGES = {
+  '24h': { label: '24 h', q: 'days=1' },
+  '7d':  { label: '7 dní', q: 'days=7&average=30' },
+  '30d': { label: '30 dní', q: 'days=30&average=120' },
+};
+async function tsFetch(q) {
+  const k = cfg.key ? `&api_key=${encodeURIComponent(cfg.key)}` : '';
+  const url = `https://api.thingspeak.com/channels/${encodeURIComponent(cfg.channel)}/feeds.json?${q}${k}`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if (r.status === 400 || r.status === 404) throw new Error('Kanál nenalezen, nebo je privátní a chybí Read API Key.');
+  if (!r.ok) throw new Error(`ThingSpeak vrátil chybu ${r.status}.`);
+  const j = await r.json();
+  if (j === -1 || !j.channel) throw new Error('Kanál je privátní. Zadej Read API Key v nastavení.');
+  return j;
+}
+function parseFeeds(j) {
+  const fields = [];
+  for (let i = 1; i <= 8; i++) {
+    const name = j.channel['field' + i];
+    if (name) fields.push({ id: 'field' + i, n: i, name, ...splitUnit(name) });
+  }
+  const rows = (j.feeds || []).map(f => ({ t: new Date(f.created_at), f }));
+  for (const fl of fields) {
+    fl.pts = [];
+    for (const r of rows) {
+      const raw = r.f[fl.id];
+      if (raw == null || raw === '') continue;
+      const v = parseFloat(String(raw).replace(',', '.'));
+      if (!isNaN(v)) fl.pts.push({ t: r.t, v });
+    }
+  }
+  return { channel: j.channel, fields, rows };
+}
+
+/* ---------- Kreslení grafů (canvas) ---------- */
+function niceTicks(min, max, count) {
+  if (min === max) { min -= 1; max += 1; }
+  const span = max - min;
+  const step0 = span / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(x => x * mag).find(s => s >= step0) || 10 * mag;
+  const lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(+v.toFixed(10));
+  return { lo, hi, ticks };
+}
+function segments(pts) {
+  // Přeruší čáru, když v datech chybí úsek (mezera > 4× medián intervalu).
+  if (pts.length < 2) return [pts];
+  const gaps = [];
+  for (let i = 1; i < pts.length; i++) gaps.push(pts[i].t - pts[i - 1].t);
+  const sorted = gaps.slice().sort((a, b) => a - b);
+  const lim = Math.max(sorted[Math.floor(sorted.length / 2)] * 4, 60000);
+  const out = [[pts[0]]];
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].t - pts[i - 1].t > lim) out.push([]);
+    out[out.length - 1].push(pts[i]);
+  }
+  return out;
+}
+function setupCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+function drawSpark(cv, pts) {
+  const { ctx, w, h } = setupCanvas(cv);
+  if (pts.length < 2) return;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  let mn = Infinity, mx = -Infinity;
+  for (const p of pts) { if (p.v < mn) mn = p.v; if (p.v > mx) mx = p.v; }
+  if (mn === mx) { mn -= 1; mx += 1; }
+  const X = t => 2 + (t - t0) / (t1 - t0 || 1) * (w - 6);
+  const Y = v => h - 4 - (v - mn) / (mx - mn) * (h - 8);
+  ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.strokeStyle = css('--trace'); ctx.fillStyle = css('--trace-fill');
+  for (const seg of segments(pts)) {
+    if (!seg.length) continue;
+    ctx.beginPath();
+    seg.forEach((p, i) => i ? ctx.lineTo(X(p.t), Y(p.v)) : ctx.moveTo(X(p.t), Y(p.v)));
+    ctx.stroke();
+    ctx.lineTo(X(seg[seg.length - 1].t), h); ctx.lineTo(X(seg[0].t), h); ctx.closePath(); ctx.fill();
+  }
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = css('--accent');
+  ctx.beginPath(); ctx.arc(X(last.t), Y(last.v), 3, 0, Math.PI * 2); ctx.fill();
+}
+function drawChart(cv, pts, unit, hoverIdx) {
+  const { ctx, w, h } = setupCanvas(cv);
+  const fg = css('--fg'), muted = css('--muted'), line = css('--line');
+  ctx.font = `12px ${css('--font-mono')}`;
+  if (pts.length < 2) {
+    ctx.fillStyle = muted; ctx.textAlign = 'center';
+    ctx.fillText('V tomto období nejsou data', w / 2, h / 2);
+    return null;
+  }
+  let mn = Infinity, mx = -Infinity;
+  for (const p of pts) { if (p.v < mn) mn = p.v; if (p.v > mx) mx = p.v; }
+  const { lo, hi, ticks } = niceTicks(mn, mx, 5);
+  const labels = ticks.map(t => fmt(t));
+  const padL = Math.max(...labels.map(l => ctx.measureText(l).width)) + 12;
+  const padR = 10, padT = 10, padB = 24;
+  const t0 = pts[0].t.getTime(), t1 = pts[pts.length - 1].t.getTime();
+  const X = t => padL + (t - t0) / (t1 - t0 || 1) * (w - padL - padR);
+  const Y = v => padT + (1 - (v - lo) / (hi - lo)) * (h - padT - padB);
+
+  // mřížka + osa Y
+  ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.fillStyle = muted; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ticks.forEach((t, i) => {
+    const y = Math.round(Y(t)) + .5;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText(labels[i], padL - 8, y);
+  });
+  // osa X
+  const span = t1 - t0, H = 3600e3, D = 24 * H;
+  const step = span <= 1.1 * D ? 3 * H : span <= 8 * D ? D : 5 * D;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  const first = new Date(t0);
+  if (step < D) first.setMinutes(0, 0, 0), first.setHours(Math.ceil(first.getHours() / 3) * 3);
+  else first.setHours(24, 0, 0, 0);
+  let lastX = -1e9;
+  for (let t = first.getTime(); t <= t1; t += step) {
+    const x = X(t);
+    if (x < padL || x - lastX < 46) continue;
+    lastX = x;
+    const d = new Date(t);
+    const lbl = step < D ? (d.getHours() === 0 ? dFmt.format(d) : tFmt.format(d)) : dFmt.format(d);
+    ctx.fillStyle = muted; ctx.fillText(lbl, x, h - 6);
+    ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, h - padB); ctx.lineTo(Math.round(x) + .5, h - padB + 4); ctx.stroke();
+  }
+  // křivka
+  ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.strokeStyle = css('--trace'); ctx.fillStyle = css('--trace-fill');
+  for (const seg of segments(pts)) {
+    if (!seg.length) continue;
+    ctx.beginPath();
+    seg.forEach((p, i) => i ? ctx.lineTo(X(p.t), Y(p.v)) : ctx.moveTo(X(p.t), Y(p.v)));
+    ctx.stroke();
+    ctx.lineTo(X(seg[seg.length - 1].t), Y(lo)); ctx.lineTo(X(seg[0].t), Y(lo)); ctx.closePath(); ctx.fill();
+  }
+  // poslední bod
+  const L = pts[pts.length - 1];
+  ctx.fillStyle = css('--accent'); ctx.beginPath(); ctx.arc(X(L.t), Y(L.v), 4, 0, Math.PI * 2); ctx.fill();
+  // kurzor
+  if (hoverIdx != null && pts[hoverIdx]) {
+    const p = pts[hoverIdx], x = X(p.t), y = Y(p.v);
+    ctx.strokeStyle = muted; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, h - padB); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css('--surface'); ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  return { X, t0, t1, padL, padR, w };
+}
+
+/* ---------- Stav aplikace ---------- */
+let state = null;         // poslední 24h data
+let timer = null;
+let loading = false;
+
+function stats(pts) {
+  if (!pts.length) return null;
+  let mn = Infinity, mx = -Infinity, s = 0;
+  for (const p of pts) { mn = Math.min(mn, p.v); mx = Math.max(mx, p.v); s += p.v; }
+  return { min: mn, max: mx, avg: s / pts.length, last: pts[pts.length - 1] };
+}
+function trend(pts) {
+  // Změna za poslední hodinu, porovnaná s rozsahem dne.
+  if (pts.length < 3) return '';
+  const last = pts[pts.length - 1];
+  const ref = pts.find(p => last.t - p.t <= 3600e3) || pts[0];
+  const st = stats(pts), d = last.v - ref.v, range = (st.max - st.min) || 1;
+  if (Math.abs(d) / range < 0.05) return '→';
+  return d > 0 ? '↗' : '↘';
+}
+
+async function load() {
+  if (loading) return;
+  loading = true;
+  $('refreshBtn').classList.add('spin');
+  try {
+    let j = await tsFetch(RANGES['24h'].q);
+    if (!j.feeds || !j.feeds.length) j = await tsFetch('results=300'); // stanice za 24 h nic neposlala
+    state = parseFeeds(j);
+    render();
+  } catch (e) {
+    renderError(e);
+  } finally {
+    loading = false;
+    $('refreshBtn').classList.remove('spin');
+  }
+}
+
+function render() {
+  const { channel, fields, rows } = state;
+  document.title = channel.name || 'ThingSpeak';
+  $('title').textContent = channel.name || `Kanál ${cfg.channel}`;
+  $('eyebrow').textContent = `ThingSpeak · kanál ${channel.id}`;
+  const lastT = rows.length ? rows[rows.length - 1].t : (channel.updated_at ? new Date(channel.updated_at) : null);
+  const age = lastT ? Date.now() - lastT : Infinity;
+  const pill = $('pill');
+  pill.className = 'pill ' + (age < 20 * 60e3 ? 'ok' : age < 3 * 3600e3 ? 'warn' : 'bad');
+  pill.textContent = age < 20 * 60e3 ? 'stanice vysílá' : age < 3 * 3600e3 ? 'dlouho bez dat' : 'stanice mlčí';
+  $('updated').textContent = lastT ? `poslední záznam ${ago(lastT)} · ${dtFmt.format(lastT)}` : '';
+  $('foot-channel').textContent = `Kanál ${channel.id}${cfg.key ? ' (privátní)' : ''}`;
+  $('foot-interval').textContent = cfg.refresh ? `každých ${cfg.refresh} s` : 'ručně';
+  $('foot-src').innerHTML = `<a href="https://thingspeak.mathworks.com/channels/${encodeURIComponent(channel.id)}" target="_blank" rel="noopener">otevřít na ThingSpeaku</a>`;
+
+  if (!fields.length) {
+    $('main').innerHTML = '<div class="note"><strong>Kanál nemá pojmenovaná pole.</strong> Pojmenuj je v nastavení kanálu na ThingSpeaku.</div>';
+    return;
+  }
+  const desc = channel.description ? `<p class="hint" style="margin:0 0 12px">${esc(channel.description)}</p>` : '';
+  $('main').innerHTML = desc + '<div class="grid">' + fields.map(f => {
+    const st = stats(f.pts);
+    return `<button class="card" data-f="${f.id}" aria-label="${esc(f.label)}, detail">
+      <div class="name"><span>${esc(f.label)}</span><span class="fld">F${f.n}</span></div>
+      <div class="value">${st ? fmt(st.last.v) : '—'}<span class="unit">${esc(f.unit)}</span><span class="trend" aria-hidden="true">${trend(f.pts)}</span></div>
+      <canvas aria-hidden="true"></canvas>
+      <div class="minmax"><span>min ${st ? fmt(st.min) : '—'}</span><span>max ${st ? fmt(st.max) : '—'}</span></div>
+    </button>`;
+  }).join('') + '</div>';
+  document.querySelectorAll('.card').forEach(el => {
+    const f = fields.find(x => x.id === el.dataset.f);
+    drawSpark(el.querySelector('canvas'), f.pts);
+    el.addEventListener('click', () => openDetail(f.id));
+  });
+}
+
+function renderError(e) {
+  const offline = !navigator.onLine;
+  $('pill').className = 'pill bad';
+  $('pill').textContent = offline ? 'offline' : 'chyba';
+  const msg = offline ? 'Telefon je offline. Jakmile se připojí, data se načtou.' : esc(e.message || e);
+  if (state) {
+    $('updated').textContent = 'zobrazuji naposledy načtená data';
+  } else {
+    $('main').innerHTML = `<div class="note err"><strong>Data se nepodařilo načíst.</strong><br>${msg}</div>`;
+  }
+}
+
+/* ---------- Detail veličiny ---------- */
+let detail = null;
+function openSheet(html) {
+  $('sheetInner').innerHTML = '<div class="grabber"></div>' + html;
+  $('sheet').hidden = false; $('backdrop').hidden = false;
+  document.body.style.overflow = 'hidden';
+}
+function closeSheet() {
+  $('sheet').hidden = true; $('backdrop').hidden = true;
+  document.body.style.overflow = '';
+  detail = null;
+}
+$('backdrop').addEventListener('click', closeSheet);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+
+function openDetail(fid) {
+  const f = state.fields.find(x => x.id === fid);
+  detail = { fid, range: '24h', pts: f.pts, hover: null, geo: null };
+  openSheet(`
+    <div class="sheet-head">
+      <div><div class="eyebrow">Pole ${f.n}${f.unit ? ' · ' + esc(f.unit) : ''}</div><h2 id="sheetTitle">${esc(f.label)}</h2></div>
+      <button class="icon" id="closeBtn" aria-label="Zavřít">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="seg" role="group" aria-label="Období">
+      ${Object.entries(RANGES).map(([k, r]) => `<button data-r="${k}" aria-pressed="${k === '24h'}">${r.label}</button>`).join('')}
+    </div>
+    <div class="chart-box"><canvas id="bigChart"></canvas></div>
+    <div class="readout" id="readout"></div>
+    <div class="stats" id="stats"></div>
+  `);
+  $('closeBtn').addEventListener('click', closeSheet);
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => setRange(b.dataset.r)));
+  const cv = $('bigChart');
+  const move = ev => {
+    if (!detail || !detail.geo) return;
+    const r = cv.getBoundingClientRect();
+    const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+    const g = detail.geo, pts = detail.pts;
+    const t = g.t0 + (x - g.padL) / (g.w - g.padL - g.padR) * (g.t1 - g.t0);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < pts.length; i++) { const d = Math.abs(pts[i].t - t); if (d < bd) { bd = d; best = i; } }
+    detail.hover = best;
+    paintDetail();
+  };
+  cv.addEventListener('pointermove', move);
+  cv.addEventListener('pointerdown', move);
+  cv.addEventListener('pointerleave', () => { if (detail) { detail.hover = null; paintDetail(); } });
+  paintDetail();
+}
+async function setRange(r) {
+  if (!detail) return;
+  detail.range = r; detail.hover = null;
+  document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.r === r));
+  if (r === '24h') { detail.pts = state.fields.find(x => x.id === detail.fid).pts; paintDetail(); return; }
+  $('readout').textContent = 'Načítám…';
+  try {
+    const p = parseFeeds(await tsFetch(RANGES[r].q));
+    if (!detail || detail.range !== r) return;
+    detail.pts = (p.fields.find(x => x.id === detail.fid) || { pts: [] }).pts;
+    paintDetail();
+  } catch (e) {
+    $('readout').textContent = e.message;
+  }
+}
+function paintDetail() {
+  if (!detail) return;
+  const f = state.fields.find(x => x.id === detail.fid);
+  const pts = detail.pts;
+  detail.geo = drawChart($('bigChart'), pts, f.unit, detail.hover);
+  const u = f.unit ? ' ' + f.unit : '';
+  const p = detail.hover != null ? pts[detail.hover] : pts[pts.length - 1];
+  $('readout').innerHTML = p
+    ? `<span>${detail.hover != null ? 'Kurzor' : 'Poslední'}: <b>${fmt(p.v)}${esc(u)}</b></span><span>${dtFmt.format(p.t)}</span><span>${pts.length} bodů${detail.range !== '24h' ? ' (průměrováno)' : ''}</span>`
+    : '';
+  const st = stats(pts);
+  $('stats').innerHTML = st ? [
+    ['Minimum', st.min], ['Maximum', st.max], ['Průměr', st.avg], ['Rozpětí', st.max - st.min]
+  ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${fmt(v)}<span class="unit" style="font-size:13px;color:var(--muted)">${esc(u)}</span></div></div>`).join('') : '';
+}
+
+/* ---------- Nastavení ---------- */
+function openSettings() {
+  openSheet(`
+    <div class="sheet-head">
+      <div><div class="eyebrow">Aplikace</div><h2 id="sheetTitle">Nastavení</h2></div>
+      <button class="icon" id="closeBtn" aria-label="Zavřít">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <form class="settings" id="setForm">
+      <label for="sChannel">Channel ID
+        <input id="sChannel" inputmode="numeric" pattern="[0-9]+" required value="${esc(cfg.channel)}">
+      </label>
+      <label for="sKey">Read API Key (jen u privátního kanálu)
+        <input id="sKey" autocomplete="off" autocapitalize="characters" spellcheck="false" value="${esc(cfg.key)}" placeholder="nechat prázdné u veřejného kanálu">
+      </label>
+      <label for="sRefresh">Automatické obnovení
+        <select id="sRefresh">
+          ${[[30, 'každých 30 s'], [60, 'každou minutu'], [300, 'každých 5 minut'], [900, 'každých 15 minut'], [0, 'jen ručně']]
+            .map(([v, l]) => `<option value="${v}" ${+cfg.refresh === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </label>
+      <p class="hint">Nastavení se ukládá jen v tomto telefonu.</p>
+      <div class="row">
+        <button class="btn" type="submit">Uložit a načíst</button>
+        <button class="btn ghost" type="button" id="cancelBtn">Zrušit</button>
+      </div>
+    </form>
+  `);
+  $('closeBtn').addEventListener('click', closeSheet);
+  $('cancelBtn').addEventListener('click', closeSheet);
+  $('setForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    cfg = { channel: $('sChannel').value.trim(), key: $('sKey').value.trim(), refresh: +$('sRefresh').value };
+    saveCfg(cfg);
+    closeSheet();
+    state = null;
+    $('main').innerHTML = '<div class="note">Načítám kanál ' + esc(cfg.channel) + '…</div>';
+    schedule(); load();
+  });
+}
+
+/* ---------- Spuštění ---------- */
+function schedule() {
+  clearInterval(timer);
+  if (cfg.refresh > 0) timer = setInterval(() => { if (!document.hidden) load(); }, cfg.refresh * 1000);
+}
+$('refreshBtn').addEventListener('click', load);
+$('settingsBtn').addEventListener('click', openSettings);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+window.addEventListener('online', load);
+let rz;
+window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (state) render(); paintDetail(); }, 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (state) render(); paintDetail(); });
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+schedule();
+load();
+</script>
+</body>
+</html>
